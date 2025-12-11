@@ -1,11 +1,32 @@
 import os
 import logging
 import psycopg2
-from psycopg2 import pool
+from psycopg2 import pool, extensions
 from contextlib import contextmanager
 from typing import List, Optional, Dict, Any
+from datetime import datetime, date
+from decimal import Decimal
+import json
 
 logger = logging.getLogger("scapi")
+
+
+# Función para convertir el tipo DECIMAL a float de Python
+def decimal_to_float(value, curs):
+    if value is None:
+        return None
+    return float(value)
+
+
+class DateTimeEncoder(json.JSONEncoder):
+    """Encoder personalizado para manejar datetime, date y Decimal en JSON."""
+    def default(self, obj):
+        if isinstance(obj, (datetime, date)):
+            return obj.isoformat()
+        if isinstance(obj, Decimal):
+            return float(obj)
+        return super().default(obj)
+
 
 class SellerDao:
     _db_pool = None
@@ -20,12 +41,20 @@ class SellerDao:
                 db_url = os.getenv("DATABASE_URL")
                 if not db_url:
                     raise ValueError("DATABASE_URL no está definida en las variables de entorno.")
-
+                
                 # Creamos un pool de conexiones (min: 1, max: 10)
-                # sslmode='require' es obligatorio para Railway/Neon/Supabase en producción
                 SellerDao._db_pool = psycopg2.pool.SimpleConnectionPool(
                     1, 10, dsn=db_url, sslmode='require'
                 )
+                
+                # Registrar solo el adaptador de DECIMAL globalmente
+                DECIMAL_OID = extensions.new_type(
+                    extensions.DECIMAL.values,
+                    'DECIMAL_AS_FLOAT',
+                    decimal_to_float
+                )
+                extensions.register_type(DECIMAL_OID)
+                
                 logger.info("Connection Pool de PostgreSQL inicializado correctamente.")
             except Exception as e:
                 logger.error(f"Error fatal iniciando el pool de BD: {e}")
@@ -56,38 +85,72 @@ class SellerDao:
     # ---------------------------------------------------------
     # MÉTODOS DE PRODUCTOS
     # ---------------------------------------------------------
-
+    
     def get_products(self, filters: Dict[str, Any]) -> List[Dict]:
         """
-        Construye una query dinámica basada en los filtros recibidos.
+        Busca productos construyendo un patrón de coincidencia
+        dentro del campo 'name' basado en q, talle y color.
         """
-        sql = "SELECT id, name, description, price, stock FROM products WHERE 1=1"
+        # SQL base
+        sql = """
+            SELECT id, name, descripcion, stock, 
+                   price_fivety_units, price_one_hundred_units, price_two_hundred_units 
+            FROM products 
+            WHERE 1=1
+        """
         params = []
-
-        if filters.get("name"):
-            # Búsqueda parcial (ILIKE es case-insensitive)
-            sql += " AND (name ILIKE %s OR description ILIKE %s)"
-            search_term = f"%{filters['name']}%"
-            params.extend([search_term, search_term])
-
-        if filters.get("categoria"):
-             sql += " AND category = %s"
-             params.append(filters["categoria"])
         
-
+        # Extraer los filtros
+        main_query = filters.get("name", "")
+        product_size = filters.get("talle", "")
+        product_color = filters.get("color", "")
+        
+        # Construir condiciones activas
+        conditions = [main_query, product_size, product_color]
+        active_conditions = [c for c in conditions if c]
+        
+        # Si hay filtros activos, construir la cláusula WHERE
+        if active_conditions:
+            search_pattern = "%" + "%".join(active_conditions) + "%"
+            sql += " AND name ILIKE %s"
+            params.append(search_pattern)
+        
         with self.get_cursor() as cur:
             cur.execute(sql, tuple(params))
             rows = cur.fetchall()
-            
-            # Convertimos tuplas a lista de diccionarios
             columns = [desc[0] for desc in cur.description]
             result = [dict(zip(columns, row)) for row in rows]
             return result
 
+    def get_product_by_id(self, product_id: int) -> Optional[Dict]:
+        """
+        Busca un producto por ID y devuelve sus detalles, incluyendo los precios por volumen.
+        Devuelve un diccionario con los detalles del producto o None si no existe.
+        """
+        sql = """
+            SELECT 
+                id, 
+                name,
+                stock 
+            FROM products 
+            WHERE id = %s
+        """
+        
+        with self.get_cursor() as cur:
+            cur.execute(sql, (product_id,))
+            row = cur.fetchone() # Usamos fetchone() porque esperamos 0 o 1 resultado
+
+            if row:
+                # Mapeo: Transforma tupla a Diccionario Python
+                columns = [desc[0] for desc in cur.description]
+                return dict(zip(columns, row))
+            
+            return None # Retorna None si el producto no fue encontrado
+
     # ---------------------------------------------------------
     # MÉTODOS DE CARRITO
     # ---------------------------------------------------------
-
+    
     def create_empty_cart(self) -> int:
         """Crea un carrito vacío y devuelve su ID"""
         sql = "INSERT INTO carts (created_at, updated_at) VALUES (NOW(), NOW()) RETURNING id"
@@ -109,10 +172,30 @@ class SellerDao:
 
     def get_cart_items(self, cart_id: int) -> List[Dict]:
         """
-        Obtiene los items uniendo con la tabla de productos para dar contexto (nombre, precio)
+        Obtiene los ítems aplicando la lógica de precios por volumen (50, 100, 200 unidades).
         """
         sql = """
-            SELECT ci.product_id, p.name, p.price, ci.qty, (p.price * ci.qty) as subtotal
+            SELECT 
+                ci.product_id, 
+                p.name, 
+                ci.qty, 
+                
+                CASE ci.qty
+                    WHEN 50 THEN p.price_fivety_units
+                    WHEN 100 THEN p.price_one_hundred_units
+                    WHEN 200 THEN p.price_two_hundred_units
+                    ELSE p.price_fivety_units
+                END AS applied_price,
+                
+                (
+                    CASE ci.qty
+                        WHEN 50 THEN p.price_fivety_units
+                        WHEN 100 THEN p.price_one_hundred_units
+                        WHEN 200 THEN p.price_two_hundred_units
+                        ELSE p.price_fivety_units
+                    END * ci.qty
+                ) AS subtotal
+                
             FROM cart_items ci
             JOIN products p ON ci.product_id = p.id
             WHERE ci.cart_id = %s
@@ -122,37 +205,91 @@ class SellerDao:
             rows = cur.fetchall()
             columns = [desc[0] for desc in cur.description]
             return [dict(zip(columns, row)) for row in rows]
+        
+    def get_cart_one_item(self, cart_id:int, product_id: int):
+        """
+        Obtiene un ítem específico del carrito.
+        """
+        sql = """
+            SELECT 
+                ci.product_id, 
+                p.name, 
+                ci.qty 
+            FROM cart_items ci
+            JOIN products p ON ci.product_id = p.id
+            WHERE ci.cart_id = %s AND ci.product_id = %s
+        """
+        with self.get_cursor() as cur:
+            cur.execute(sql, (cart_id, product_id))
+            row = cur.fetchone()
+            if row:
+                columns = [desc[0] for desc in cur.description]
+                return dict(zip(columns, row))
+            return None
+
 
     def add_item(self, cart_id: int, product_id: int, qty: int):
         """
         Agrega un ítem o actualiza la cantidad si ya existe.
         Usa lógica 'Upsert' manual para compatibilidad máxima.
         """
-        # 1. Intentamos actualizar primero (si ya existe el producto en el carrito)
         update_sql = """
             UPDATE cart_items 
             SET qty = qty + %s 
             WHERE cart_id = %s AND product_id = %s
         """
         
-        # 2. Si no actualizó nada, insertamos
         insert_sql = """
             INSERT INTO cart_items (cart_id, product_id, qty)
             VALUES (%s, %s, %s)
         """
+        
+        dissmiss_product_sql="""
+            UPDATE products
+            SET stock = stock - %s
+            WHERE id = %s
+        """
 
         with self.get_cursor() as cur:
-            # Intentamos update (sumar a lo que había)
-            # NOTA: Si quieres reemplazar la cantidad en vez de sumar, cambia 'qty + %s' por '%s'
+            # Intentar actualizar primero
             cur.execute(update_sql, (qty, cart_id, product_id))
             
             if cur.rowcount == 0:
-                # No existía, hacemos insert
+                # No existía, hacer insert
                 cur.execute(insert_sql, (cart_id, product_id, qty))
             
-            # Actualizamos el timestamp del carrito
+            # Actualizar timestamp del carrito
             cur.execute("UPDATE carts SET updated_at = NOW() WHERE id = %s", (cart_id,))
             
+            cur.execute(dissmiss_product_sql, (qty, product_id))
+
+            return {"product_id": product_id, "added_qty": qty}
+        
+    def dismiss_item(self, cart_id: int, product_id: int, qty: int):
+        """
+        Disminuye la cantidad de un item.
+        """
+        update_sql = """
+            UPDATE cart_items 
+            SET qty = qty - %s 
+            WHERE cart_id = %s AND product_id = %s
+        """
+        
+        add_product_sql="""
+            UPDATE products
+            SET stock = stock + %s
+            WHERE id = %s
+        """
+
+        with self.get_cursor() as cur:
+            # Intentar actualizar primero
+            cur.execute(update_sql, (qty, cart_id, product_id))
+            
+            # Actualizar timestamp del carrito
+            cur.execute("UPDATE carts SET updated_at = NOW() WHERE id = %s", (cart_id,))
+            
+            cur.execute(add_product_sql, (qty, product_id))
+
             return {"product_id": product_id, "added_qty": qty}
 
     def remove_item(self, cart_id: int, product_id: int):
@@ -160,6 +297,7 @@ class SellerDao:
         sql = "DELETE FROM cart_items WHERE cart_id = %s AND product_id = %s"
         with self.get_cursor() as cur:
             cur.execute(sql, (cart_id, product_id))
-            # Actualizamos timestamp
+            # Actualizar timestamp
             cur.execute("UPDATE carts SET updated_at = NOW() WHERE id = %s", (cart_id,))
             return True
+
