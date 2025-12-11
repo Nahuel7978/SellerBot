@@ -13,6 +13,7 @@ job_cleaner = None
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
 APP_PORT = int(os.getenv("PORT",8000))
 
+
 # Eventos (startup/shutdown)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -54,9 +55,3 @@ def create_app() -> FastAPI:
     return app
 
 app = create_app()
-
-if __name__ == "__main__":
-    import uvicorn
-    # En Railway, la variable de entorno 'PORT' será asignada por ellos
-    # Usamos 8000 por defecto en local    
-    uvicorn.run(app, host="0.0.0.0", port=APP_PORT)
