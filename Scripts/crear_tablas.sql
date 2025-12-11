@@ -11,6 +11,7 @@ CREATE TABLE products (
 
 CREATE TABLE carts (
     id SERIAL PRIMARY KEY,
+    phone_number int not null,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -33,5 +34,7 @@ CREATE TABLE cart_items (
 );
 
 
-select * from products p ;
+ALTER TABLE carts ADD CONSTRAINT unique_phone UNIQUE (phone_number);
+
+select * from cart_items ci  ;
 
