@@ -8,4 +8,5 @@ class CartItemRequest(BaseModel):
 
 # Modelo para la actualización del carrito (Lista de ítems)
 class CartUpdate(BaseModel):
+    phone_number:int
     items: List[CartItemRequest]
