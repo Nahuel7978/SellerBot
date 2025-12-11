@@ -11,7 +11,7 @@ scheduler = None
 job_cleaner = None
 
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
-APP_PORT = int(os.getenv("PORT"))
+APP_PORT = int(os.getenv("PORT",8000))
 
 # Eventos (startup/shutdown)
 @asynccontextmanager
