@@ -17,17 +17,6 @@ def decimal_to_float(value, curs):
         return None
     return float(value)
 
-
-class DateTimeEncoder(json.JSONEncoder):
-    """Encoder personalizado para manejar datetime, date y Decimal en JSON."""
-    def default(self, obj):
-        if isinstance(obj, (datetime, date)):
-            return obj.isoformat()
-        if isinstance(obj, Decimal):
-            return float(obj)
-        return super().default(obj)
-
-
 class SellerDao:
     _db_pool = None
 
