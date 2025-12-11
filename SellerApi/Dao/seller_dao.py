@@ -140,17 +140,17 @@ class SellerDao:
     # MÉTODOS DE CARRITO
     # ---------------------------------------------------------
     
-    def create_empty_cart(self) -> int:
+    def create_empty_cart(self,phone) -> int:
         """Crea un carrito vacío y devuelve su ID"""
-        sql = "INSERT INTO carts (created_at, updated_at) VALUES (NOW(), NOW()) RETURNING id"
+        sql = "INSERT INTO carts (created_at, updated_at, phone_number) VALUES (NOW(), NOW(),%s) RETURNING id"
         with self.get_cursor() as cur:
-            cur.execute(sql)
+            cur.execute(sql,(phone,))
             cart_id = cur.fetchone()[0]
             return cart_id
 
     def get_cart_header(self, cart_id: int) -> Optional[Dict]:
         """Obtiene los datos generales del carrito"""
-        sql = "SELECT id, created_at, updated_at FROM carts WHERE id = %s"
+        sql = "SELECT id, created_at, updated_at FROM carts WHERE phone_number = %s"
         with self.get_cursor() as cur:
             cur.execute(sql, (cart_id,))
             row = cur.fetchone()
