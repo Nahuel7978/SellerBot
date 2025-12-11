@@ -8,7 +8,7 @@ logger = logging.getLogger("scapi")
 # Credenciales
 WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
 PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
-API_VERSION = "v21.0" # O la versión que te indique Meta
+API_VERSION = "v24.0" # O la versión que te indique Meta
 
 async def send_whatsapp_message(to_number: str, message_text: str):
     """
