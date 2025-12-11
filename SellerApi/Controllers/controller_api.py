@@ -1,12 +1,15 @@
 import os
-from fastapi import APIRouter, Request, HTTPException , Query
+from fastapi import APIRouter, Request, HTTPException , Query, status
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.responses import PlainTextResponse
-from typing import Optional
+import json
+from datetime import datetime, date
+from decimal import Decimal
+from typing import Optional, Any
 from dotenv import load_dotenv
-from SellerApi.Services.whatsapp_service import send_whatsapp_message
-from SellerApi.Services.database_service import DatabaseService
-from SellerApi.Model import ProductModel, ChatModel, CartUpdate
+from Services.whatsapp_service import send_whatsapp_message
+from Services.database_service import DatabaseService
+from Model.schemas import  CartUpdate
 
 # Carga variables de entorno (para desarrollo local)
 load_dotenv()
@@ -101,9 +104,9 @@ async def handle_message(request: Request):
 @router.get("/products")
 async def get_products(
     q: Optional[str] = Query(None, description="Búsqueda general por nombre o descripción"),
-    talle: Optional[str] = Query(None, description="Filtro por talle"),
+    size: Optional[str] = Query(None, description="Filtro por talle"),
     color: Optional[str] = Query(None, description="Filtro por color"),
-    categoria: Optional[str] = Query(None, description="Filtro por categoría")
+    category: Optional[str] = Query(None, description="Filtro por categoría")
 ):
     """
     Busca productos. Si no se pasan parámetros, devuelve todos.
@@ -113,13 +116,14 @@ async def get_products(
         # Empaquetamos los filtros en un diccionario limpio
         filters = {
             "name": q,
-            "talle": talle, 
+            "talle": size, 
             "color": color, 
-            "categoria": categoria
+            "category": category
         }
         
         # Llamamos al servicio (método que crearemos luego)
         # Nota: Eliminamos claves con valor None para no ensuciar la query
+        
         active_filters = {k: v for k, v in filters.items() if v is not None}
         
         products = db_service.search_products(active_filters)
@@ -143,7 +147,7 @@ async def get_cart(cart_id: int):
         cart = db_service.get_cart(cart_id)
         if not cart:
             raise HTTPException(status_code=404, detail=f"Carrito {cart_id} no encontrado")
-        return JSONResponse(content=cart, status_code=200)
+        return JSONResponse(content=json.loads(to_json(cart)) , status_code=200)
     except HTTPException as he:
         raise he
     except Exception as e:
@@ -169,6 +173,7 @@ async def update_cart(cart_id: int, cart_update: CartUpdate):
     Lógica:
     - Si qty > 0: Agrega o actualiza cantidad.
     - Si qty == 0: Elimina el producto del carrito (Lógica de 'Discard').
+    - Si qty < 0: Disminuye la cantidad (si queda 0 o menos, elimina el ítem).
     """
     try:
         # Verificamos primero si el carrito existe
@@ -183,8 +188,9 @@ async def update_cart(cart_id: int, cart_update: CartUpdate):
                 # Caso: Agregar / Actualizar
                 res = db_service.add_to_cart(cart_id, item.product_id, item.qty)
                 results.append(res)
+            elif(item.qty < 0):
+                res = db_service.dismiss_to_cart(cart_id, item.product_id, abs(item.qty))
             else:
-                # Caso: Discard (Eliminar ítem si qty es 0 o menor)
                 res = db_service.remove_item_from_cart(cart_id, item.product_id)
                 results.append({"product_id": item.product_id, "status": "removed"})
         
@@ -222,3 +228,24 @@ async def create_cart(cart_data: CartUpdate):
     except Exception as e:
         print(f"Error creando carrito: {e}")
         raise HTTPException(status_code=500, detail="Error interno al crear carrito")
+    
+
+# ---------------------------------------------------------
+# MÉTODO AUXILIAR PARA SERIALIZACIÓN JSON
+# ---------------------------------------------------------
+
+class DateTimeEncoder(json.JSONEncoder):
+    """Encoder personalizado para manejar datetime, date y Decimal en JSON."""
+    def default(self, obj):
+        if isinstance(obj, (datetime, date)):
+            return obj.isoformat()
+        if isinstance(obj, Decimal):
+            return float(obj)
+        return super().default(obj)
+
+def to_json(data: Any) -> str:
+    """
+    Convierte cualquier estructura de datos a JSON,
+    manejando automáticamente datetime, date y Decimal.
+    """
+    return json.dumps(data, cls=DateTimeEncoder, ensure_ascii=False)
