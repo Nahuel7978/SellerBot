@@ -1,9 +1,12 @@
 import os
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Request, HTTPException , Query
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.responses import PlainTextResponse
+from typing import Optional
 from dotenv import load_dotenv
-from Services.service import send_whatsapp_message
+from SellerApi.Services.whatsapp_service import send_whatsapp_message
+from SellerApi.Services.database_service import DatabaseService
+from SellerApi.Model import ProductModel, ChatModel, CartUpdate
 
 # Carga variables de entorno (para desarrollo local)
 load_dotenv()
@@ -11,7 +14,10 @@ load_dotenv()
 # Define el token de verificación desde las variables de entorno
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
 
-router = APIRouter() # <--- ¡FALTA ESTA LÍNEA!
+router = APIRouter()
+
+db_service = DatabaseService()
+
 
 # -----------------------------------------------------------
 # 1. ENDPOINT DE VERIFICACIÓN (GET)
@@ -89,3 +95,130 @@ async def handle_message(request: Request):
         print(f"Error procesando webhook: {e}")
         # Siempre devolver 200 a Meta, o te bloquearán el webhook si fallas mucho
         return {"status": "error", "message": str(e)}
+
+# -----------------------------------------------------------
+
+@router.get("/products")
+async def get_products(
+    q: Optional[str] = Query(None, description="Búsqueda general por nombre o descripción"),
+    talle: Optional[str] = Query(None, description="Filtro por talle"),
+    color: Optional[str] = Query(None, description="Filtro por color"),
+    categoria: Optional[str] = Query(None, description="Filtro por categoría")
+):
+    """
+    Busca productos. Si no se pasan parámetros, devuelve todos.
+    Si se pasan parámetros (q, talle, color, categoria), filtra los resultados.
+    """
+    try:
+        # Empaquetamos los filtros en un diccionario limpio
+        filters = {
+            "name": q,
+            "talle": talle, 
+            "color": color, 
+            "categoria": categoria
+        }
+        
+        # Llamamos al servicio (método que crearemos luego)
+        # Nota: Eliminamos claves con valor None para no ensuciar la query
+        active_filters = {k: v for k, v in filters.items() if v is not None}
+        
+        products = db_service.search_products(active_filters)
+        
+        if not products:
+            # Retornamos lista vacía en vez de 404 para búsquedas sin resultados
+            return JSONResponse(content=[], status_code=200)
+            
+        return JSONResponse(content=products, status_code=200)
+
+    except Exception as e:
+        print(f"Error buscando productos: {e}")
+        raise HTTPException(status_code=500, detail="Error interno buscando productos")
+
+@router.get("/carts/{cart_id}")
+async def get_cart(cart_id: int):
+    """
+    Busca un carrito por su ID.
+    """
+    try:
+        cart = db_service.get_cart(cart_id)
+        if not cart:
+            raise HTTPException(status_code=404, detail=f"Carrito {cart_id} no encontrado")
+        return JSONResponse(content=cart, status_code=200)
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@router.get("/carts/{cart_id}/items")
+async def get_cart_items(cart_id: int):
+    """
+    Busca solo los ítems de un carrito específico.
+    """
+    try:
+        items = db_service.get_cart_items(cart_id)
+        return JSONResponse(content=items, status_code=200)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@router.patch("/carts/{cart_id}")    
+async def update_cart(cart_id: int, cart_update: CartUpdate):
+    """
+    Agrega, actualiza o elimina productos del carrito.
+    Body esperado: { "items": [{ "product_id": 1, "qty": 2 }] }
+    
+    Lógica:
+    - Si qty > 0: Agrega o actualiza cantidad.
+    - Si qty == 0: Elimina el producto del carrito (Lógica de 'Discard').
+    """
+    try:
+        # Verificamos primero si el carrito existe
+        cart = db_service.get_cart(cart_id)
+        if not cart:
+             # Si no existe, opcionalmente podríamos crearlo aquí o dar 404
+             raise HTTPException(status_code=404, detail="Carrito no encontrado")
+
+        results = []
+        for item in cart_update.items:
+            if item.qty > 0:
+                # Caso: Agregar / Actualizar
+                res = db_service.add_to_cart(cart_id, item.product_id, item.qty)
+                results.append(res)
+            else:
+                # Caso: Discard (Eliminar ítem si qty es 0 o menor)
+                res = db_service.remove_item_from_cart(cart_id, item.product_id)
+                results.append({"product_id": item.product_id, "status": "removed"})
+        
+        return JSONResponse(content={"status": "updated", "changes": results}, status_code=200)
+
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        print(f"Error actualizando carrito: {e}")
+        raise HTTPException(status_code=500, detail="Error actualizando el carrito")
+    
+@router.post("/carts", status_code=status.HTTP_201_CREATED)
+async def create_cart(cart_data: CartUpdate):
+    """
+    Crea un nuevo carrito de compras.
+    Opcionalmente puede recibir ítems iniciales.
+    Body: { "items": [{ "product_id": 1, "qty": 1 }] }
+    """
+    try:
+        # Llamamos al servicio para crear el carrito en la BD
+        # Le pasamos la lista de ítems (puede estar vacía)
+        new_cart_id = db_service.create_cart(cart_data.items)
+        
+        if not new_cart_id:
+            raise HTTPException(status_code=500, detail="No se pudo crear el carrito")
+
+        return JSONResponse(
+            content={
+                "message": "Carrito creado exitosamente", 
+                "cart_id": new_cart_id
+            }, 
+            status_code=status.HTTP_201_CREATED
+        )
+
+    except Exception as e:
+        print(f"Error creando carrito: {e}")
+        raise HTTPException(status_code=500, detail="Error interno al crear carrito")
