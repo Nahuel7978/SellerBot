@@ -138,37 +138,37 @@ async def get_products(
         print(f"Error buscando productos: {e}")
         raise HTTPException(status_code=500, detail="Error interno buscando productos")
 
-@router.get("/carts/{cart_id}")
-async def get_cart(cart_id: int):
+@router.get("/carts/{cart_phone}")
+async def get_cart(cart_phone: int):
     """
     Busca un carrito por su ID.
     """
     try:
-        cart = db_service.get_cart(cart_id)
+        cart = db_service.get_cart(cart_phone)
         if not cart:
-            raise HTTPException(status_code=404, detail=f"Carrito {cart_id} no encontrado")
+            raise HTTPException(status_code=404, detail=f"Carrito correspondiente a {cart_phone} no encontrado")
         return JSONResponse(content=json.loads(to_json(cart)) , status_code=200)
     except HTTPException as he:
         raise he
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
-@router.get("/carts/{cart_id}/items")
-async def get_cart_items(cart_id: int):
+@router.get("/carts/{cart_phone}/items")
+async def get_cart_items(cart_phone: int):
     """
     Busca solo los ítems de un carrito específico.
     """
     try:
-        items = db_service.get_cart_items(cart_id)
+        items = db_service.get_cart_items(db_service.get_cart(cart_phone))
         return JSONResponse(content=items, status_code=200)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
-@router.patch("/carts/{cart_id}")    
-async def update_cart(cart_id: int, cart_update: CartUpdate):
+@router.patch("/carts/{cart_phone}")    
+async def update_cart(cart_update: CartUpdate):
     """
     Agrega, actualiza o elimina productos del carrito.
-    Body esperado: { "items": [{ "product_id": 1, "qty": 2 }] }
+    Body esperado: {"phone_number":2284, "items": [{ "product_id": 1, "qty": 2 }] }
     
     Lógica:
     - Si qty > 0: Agrega o actualiza cantidad.
@@ -177,8 +177,8 @@ async def update_cart(cart_id: int, cart_update: CartUpdate):
     """
     try:
         # Verificamos primero si el carrito existe
-        cart = db_service.get_cart(cart_id)
-        if not cart:
+        cart_id = db_service.get_cart(cart_update.phone_number)
+        if not cart_id:
              # Si no existe, opcionalmente podríamos crearlo aquí o dar 404
              raise HTTPException(status_code=404, detail="Carrito no encontrado")
 
@@ -212,7 +212,7 @@ async def create_cart(cart_data: CartUpdate):
     try:
         # Llamamos al servicio para crear el carrito en la BD
         # Le pasamos la lista de ítems (puede estar vacía)
-        new_cart_id = db_service.create_cart(cart_data.items)
+        new_cart_id = db_service.create_cart(cart_data.phone_number,cart_data.items)
         
         if not new_cart_id:
             raise HTTPException(status_code=500, detail="No se pudo crear el carrito")
