@@ -1,0 +1,360 @@
+import httpx
+import os
+import google.generativeai as genai
+from google.generativeai.types import content_types
+from collections import defaultdict
+import logging
+from dotenv import load_dotenv
+
+# Carga variables de entorno (para desarrollo local)
+load_dotenv()
+
+# Configuración básica
+logger = logging.getLogger("scapi")
+BASE_URL = os.getenv("BASE_URL")
+
+# ---------------------------------------------------------
+# 1. DEFINICIÓN DE HERRAMIENTAS (WRAPPERS)
+# ---------------------------------------------------------
+# Estas son las funciones que Gemini podrá "ver" y ejecutar.
+
+def tool_get_product_detail(product_id: int):
+    """
+    Obtiene los detalles completos de un producto específico por su ID.
+    Úsalo si necesitas confirmar precio o stock exacto de un ítem antes de agregarlo.
+    Args:
+        product_id: El ID numérico del producto a consultar.
+    """
+    try:
+        with httpx.Client() as client:
+            response = client.get(f"{BASE_URL}/products/{product_id}", timeout=10)
+            if response.status_code == 404:
+                return "Producto no encontrado."
+            response.raise_for_status()
+            return response.json()
+    except Exception as e:
+        return f"Error consultando detalle: {str(e)}"
+
+def tool_search_products(query: str = None, talle: str = None, color: str = None, categoria: str = None):
+    """
+    Busca productos en el catálogo basándose en palabras clave o características.
+    Si el usuario pregunta algo similar a "¿qué tienes?", "¿Tienes el producto X?", usa esta función sin parámetros.
+    Esta función tambien se utiliza para buscar un producto específico si el usuario lo requiriera.
+
+    Args:
+        query: Nombre del producto o palabra clave general (ej: "zapatillas").
+        talle: Talle o tamaño buscado (ej: "40", "S", "M").
+        color: Color buscado (ej: "rojo", "negro").
+        categoria: Categoría del producto (ej: "calzado", "ropa").
+    """
+    # Empaquetamos los argumentos en el diccionario que espera db_service
+    filters = {
+        "name": query,
+        "talle": talle,
+        "color": color,
+        "category": categoria
+    }
+    # Filtramos los Nones para limpiar la búsqueda
+    params = {k: v for k, v in filters.items() if v is not None}
+
+    try:
+        # EL CAMBIO CLAVE: Petición HTTP real en lugar de db_service
+        with httpx.Client() as client:
+            response = client.get(f"{BASE_URL}/products", params=params)
+            response.raise_for_status()
+            
+            data = response.json()
+            if not data:
+                return "La API respondió sin resultados."
+            return data
+            
+    except Exception as e:
+        return f"Error HTTP al consultar API de productos: {str(e)}"
+
+def tool_create_cart(phone : str):
+    """
+    Crea un nuevo carrito de compras vacío para el usuario.
+    Úsalo cuando el usuario exprese intención explícita de comenzar una compra
+    o si necesita un carrito y no tiene uno (aunque esto último deberías preguntarlo).
+    
+    Returns:
+        El ID del carrito creado (int).
+    """
+    try:
+        # Payload para crear carrito vacío
+        body = {"phone_number":int(phone),"items": []}
+
+        # EJECUCIÓN HTTP
+        with httpx.Client() as client:
+            # Consume POST /carts [cite: 90]
+            response = client.post(f"{BASE_URL}/carts", json=body, timeout=10)
+            response.raise_for_status()
+            
+            data = response.json()
+            return f"Carrito creado exitosamente. ID: {data.get('cart_id')}"
+
+    except Exception as e:
+        return f"Error creando carrito vía API: {str(e)}"
+
+def tool_add_to_cart(cart_id: int ,phone: str, product_id: int, qty: int):
+    """
+    Agrega un producto a un carrito existente o aumenta las unidades compradas.
+    IMPORTANTE: Las cantidades SOLO pueden ser 50, 100 o 200.
+    
+    Args:
+        cart_id: El número ID del carrito activo (debes haberlo creado o preguntado antes).
+        product_id: El ID numérico del producto a agregar (búscalo con tool_search_products si no lo sabes).
+        qty: Cantidad a agregar. Valores permitidos: 50, 100, 200.
+    """
+    try:
+        # Estructura requerida por tu Controller: CartUpdate -> items list
+        body = {
+            "phone_number": int(phone),
+            "items": [
+                {"product_id": product_id, "qty": qty}
+            ]
+        }
+
+        # EJECUCIÓN HTTP
+        with httpx.Client() as client:
+            # Consume PATCH /carts/:id [cite: 92]
+            url = f"{BASE_URL}/carts/{cart_id}"
+            response = client.patch(url, json=body, timeout=10)
+            
+            # Si la API devuelve 400 (Bad Request) por la validación de cantidad,
+            # httpx lanzará un error aquí que capturamos abajo.
+            response.raise_for_status()
+            
+            return response.json()
+
+    except httpx.HTTPStatusError as e:
+        # Aquí capturamos el mensaje de "Solo cantidad 50, 100, 200" que manda tu API
+        return f"La API rechazó la operación: {e.response.text}"
+    except Exception as e:
+        return f"Error agregando producto: {str(e)}"
+    
+def tool_dismiss_to_cart(cart_id: int, phone: str, product_id: int, qty: int):
+    """
+    Disminuye la cantidad de unidades de un producto a un carrito existente.
+    IMPORTANTE: Las cantidades SOLO pueden ser 50, 100 o 200.
+    
+    Args:
+        cart_id: El número ID del carrito activo (debes haberlo creado o preguntado antes).
+        product_id: El ID numérico del producto a agregar (búscalo con tool_search_products si no lo sabes).
+        qty: Cantidad a disminuir. Valores permitidos: 50, 100, 200.
+    """
+    try:
+        # Estructura requerida por tu Controller: CartUpdate -> items list
+        body = {
+            "phone_number": int(phone),
+            "items": [
+                {"product_id": product_id, "qty": (-1*qty)}
+            ]
+        }
+
+        # EJECUCIÓN HTTP
+        with httpx.Client() as client:
+            url = f"{BASE_URL}/carts/{cart_id}"
+            response = client.patch(url, json=body, timeout=10)
+            
+            response.raise_for_status()
+            
+            return response.json()
+
+    except httpx.HTTPStatusError as e:
+        # Aquí capturamos el mensaje de "Solo cantidad 50, 100, 200" que manda tu API
+        return f"La API rechazó la operación: {e.response.text}"
+    except Exception as e:
+        return f"Error agregando producto: {str(e)}"
+
+def tool_get_cart_details(phone: int):
+    """
+    Consulta el contenido actual de un carrito (productos, precios y subtotal).
+    Úsalo cuando el usuario pregunte cosas similares a "¿qué tengo en el carrito?" o "ver carrito" o "¿cuanto va a costarme la compra?".
+    
+    Args:
+        cart_id: El ID del carrito a consultar.
+    """
+    try:
+        with httpx.Client() as client:
+            # Consume GET /carts/:id
+            # Nota: Tu controller tiene endpoints separados para header e items,
+            # pero asumimos que el endpoint /carts/{id} devuelve el JSON completo 
+            # (header + items) tal como lo programamos en el Service.
+            response = client.get(f"{BASE_URL}/carts/{phone}", timeout=10)
+            
+            if response.status_code == 404:
+                return "El carrito no existe."
+            
+            response.raise_for_status()
+            return response.json()
+
+    except Exception as e:
+        return f"Error consultando carrito: {str(e)}"
+
+def tool_get_cart_items(cart_id:int):
+    """
+    Consulta solo los ítems de un carrito específico.
+    
+    Args:
+        cart_id: El ID del carrito a consultar.
+    """
+    try:
+        with httpx.Client() as client:
+            # Consume GET /carts/:id/items
+            response = client.get(f"{BASE_URL}/carts/{cart_id}/items", timeout=10)
+            if response.status_code == 404:
+                return "El carrito no existe."
+            response.raise_for_status()
+            return response.json()
+
+    except Exception as e:
+        return f"Error consultando ítems del carrito: {str(e)}"
+
+def tool_remove_item(cart_id: int,phone:str, product_id: int):
+    """
+    Elimina un producto específico del carrito.
+    
+    Args:
+        cart_id: El ID del carrito.
+        product_id: El ID del producto a borrar.
+    """
+    try:
+        # En tu lógica de controller, enviar qty=0 elimina el ítem.
+        body = {
+            "phone_number": int(phone),
+            "items": [
+                {"product_id": product_id, "qty": 0} # 0 indica borrar
+            ]
+        }
+
+        with httpx.Client() as client:
+            # Reutiliza PATCH /carts/:id
+            response = client.patch(f"{BASE_URL}/carts/{cart_id}", json=body, timeout=10)
+            response.raise_for_status()
+            return "Producto eliminado del carrito vía API."
+
+    except Exception as e:
+        return f"Error eliminando producto: {str(e)}"
+
+
+# Esta lista se la pasaremos al modelo.
+my_tools_list = [
+    tool_get_product_detail,
+    tool_search_products,
+    tool_create_cart,
+    tool_add_to_cart,
+    tool_get_cart_details,
+    tool_remove_item
+]
+
+# ---------------------------------------------------------
+# PROMPT DEL SISTEMA (PERSONALIDAD)
+# ---------------------------------------------------------
+SYSTEM_INSTRUCTION = """
+Eres el Asistente Virtual de Ventas de Laburen.com, especializado en pedidos mayoristas de vestimenta.
+
+CAPACIDADES:
+- Consultar productos del catálogo (nombre, precio, stock)
+- Gestionar carritos de compra (crear, agregar, modificar, consultar)
+- Responder preguntas sobre productos específicos y disponibilidad
+
+REGLAS DE NEGOCIO CRÍTICAS:
+1. TIPOS DE PRENDAS: 
+    - Las categorías son: camiseta, falda, sudadera, pantalón, chaqueta, camisa. 
+    - Intenta siempre clasificar los productos con estos tipos.
+    - Para cada categoría deber respetar las tildes.
+    - Las categorías pertenecen al nombre del producto").
+
+2. TALLAS DISPONIBLES: s, m, l, xl, xxl.
+
+3. CATEGORIAS: 
+    - formal, deportivo, casual.
+    - Intenta siempre clasificar los productos en estas categorías.
+
+4. LOTES FIJOS: Solo vendemos en cantidades de 50, 100 o 200 unidades por producto
+   - Si el usuario pide otra cantidad, explícale amablemente que solo manejamos esos lotes.
+   
+5. PRECIOS VARIABLES: Los precios cambian según el lote (50/100/200)
+   - Siempre consulta precios con las herramientas, nunca los inventes
+   
+6. GESTIÓN DE CARRITO:
+   - Si no existe carrito: créalo automáticamente con tool_create_cart
+   - Guarda el cart_id en contexto para operaciones futuras
+   - Para agregar productos SIEMPRE necesitas: product_id y cart_id
+
+FLUJO DE TRABAJO:
+1. Pregunta del usuario -> Identifica intención (consulta/compra/modificación)
+2. Si menciona un producto sin ID -> Usa tool_search_products primero
+3. Para agregar al carrito -> Verifica cart_id -> Si no existe, créalo -> Luego agrega con tool_add_to_cart
+4. Para modificar cantidades → Usa tool_update_cart_item o tool_remove_from_cart
+
+TONO Y ESTILO:
+- Conciso y directo (ideal para WhatsApp)
+- Profesional pero cercano
+- Respuestas cortas: 1-3 oraciones máximo cuando sea posible
+- Usa emojis ocasionales para calidez: ✅ 📦 🛒 (sin excederte)
+
+RESTRICCIONES ESTRICTAS:
+ - NO inventes información: productos, precios, stock o IDs
+ - NO hables de temas ajenos a la venta mayorista de Laburen.com
+ - NO ofrezcas servicios que no están en tus herramientas
+ - Si el usuario se desvía del tema: "Mi función es ayudarte con pedidos mayoristas de Laburen.com. ¿Te puedo mostrar nuestro catálogo?"
+
+"""
+
+class AIService:
+    """
+    Servicio para interactuar con el modelo Gemini de Google Generative AI
+    """
+    def __init__(self):
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            logger.error("Falta GEMINI_API_KEY en variables de entorno")
+            raise ValueError("Falta GEMINI_API_KEY")
+
+        genai.configure(api_key=api_key)
+        
+        self.model = genai.GenerativeModel(
+            model_name='gemini-2.5-flash-lite',
+            tools=my_tools_list,
+            system_instruction=SYSTEM_INSTRUCTION
+        )
+        
+        # Memoria de sesiones: { 'phone_number': ChatSession }
+        self.chat_sessions = {}
+
+    def get_response(self, phone_number: str, user_message: str) -> str:
+        """
+        Procesa el mensaje del usuario, ejecuta herramientas si es necesario 
+        y devuelve la respuesta en texto natural.
+        """
+        try:
+            if phone_number not in self.chat_sessions:
+                # history=[] inicia el chat vacío. 
+                # enable_automatic_function_calling=True permite que el SDK maneje el bucle de herramientas
+                self.chat_sessions[phone_number] = self.model.start_chat(
+                    enable_automatic_function_calling=True
+                )
+                logger.info(f"Nueva sesión iniciada para {phone_number}")
+
+            chat_session = self.chat_sessions[phone_number]
+
+            response = chat_session.send_message(user_message)
+            
+            return response.text
+
+        except Exception as e:
+            logger.error(f"Error en AI Service: {e}")
+            return "Lo siento, tuve un problema procesando tu solicitud. Por favor intenta de nuevo."
+        
+
+#if __name__ == "__main__":
+    #print(tool_get_product_detail(87))
+    #print(tool_search_products(query="camiseta", talle="s",color="rojo"))
+    #print(tool_create_cart(22846596867))
+    #print(tool_add_to_cart(6,"22846596867",87,100))
+    #print(tool_dismiss_to_cart(6, "22846596867",87,50))
+    #print(tool_get_cart_details("22846596867"))
+    #print(tool_get_cart_items(6))
+    #print(tool_remove_item(6,"22846596867",87))
