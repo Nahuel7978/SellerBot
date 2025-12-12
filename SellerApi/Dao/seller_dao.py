@@ -79,11 +79,12 @@ class SellerDao:
         """
         Busca productos construyendo un patrón de coincidencia
         dentro del campo 'name' basado en q, talle y color.
+        Filtra por categoría si se proporciona.
         """
         # SQL base
         sql = """
-            SELECT id, name, descripcion, stock, 
-                   price_fivety_units, price_one_hundred_units, price_two_hundred_units 
+            SELECT id, name, descripcion, stock, category,
+                price_fivety_units, price_one_hundred_units, price_two_hundred_units 
             FROM products 
             WHERE 1=1
         """
@@ -93,16 +94,22 @@ class SellerDao:
         main_query = filters.get("name", "")
         product_size = filters.get("talle", "")
         product_color = filters.get("color", "")
+        category = filters.get("category", "")
         
-        # Construir condiciones activas
-        conditions = [main_query, product_size, product_color]
-        active_conditions = [c for c in conditions if c]
+        # Construir condiciones activas para el patrón de búsqueda en 'name'
+        name_conditions = [main_query, product_size, product_color]
+        active_name_conditions = [c for c in name_conditions if c]
         
-        # Si hay filtros activos, construir la cláusula WHERE
-        if active_conditions:
-            search_pattern = "%" + "%".join(active_conditions) + "%"
+        # Si hay filtros activos para 'name', construir la cláusula WHERE
+        if active_name_conditions:
+            search_pattern = "%" + "%".join(active_name_conditions) + "%"
             sql += " AND name ILIKE %s"
             params.append(search_pattern)
+        
+        # Filtro independiente para categoría
+        if category:
+            sql += " AND category ILIKE %s"
+            params.append(category)
         
         with self.get_cursor() as cur:
             cur.execute(sql, tuple(params))
@@ -120,6 +127,11 @@ class SellerDao:
             SELECT 
                 id, 
                 name,
+                descripcion,
+                category,
+                price_fivety_units,
+                price_one_hundred_units,
+                price_two_hundred_units,
                 stock 
             FROM products 
             WHERE id = %s
