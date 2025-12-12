@@ -1,5 +1,8 @@
 fastapi
 uvicorn
 python-dotenv
+python-multipart
 httpx
 psycopg2-binary
+google-genai
+google-generativeai
