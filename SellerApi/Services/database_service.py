@@ -21,6 +21,13 @@ class DatabaseService:
                 f"La cantidad de un producto debe ser 50, 100 o 200 unidades. Se recibió {qty}."
             )
     
+    def get_product(self, id:int):
+        """
+        Llama al DAO para obtener un producto por ID.
+        """
+        logger.info(f"Servicio: Obteniendo producto con ID: {id}")
+        return self.dao.get_product_by_id(id)
+
     def search_products(self, filters: dict):
         """
         Recibe un diccionario de filtros (ej: {'color': 'rojo'})
