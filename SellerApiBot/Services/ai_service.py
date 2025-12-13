@@ -18,7 +18,7 @@ BASE_URL = os.getenv("BASE_URL")
 # ---------------------------------------------------------
 # Estas son las funciones que Gemini podrá "ver" y ejecutar.
 
-def tool_get_product_detail(product_id: int):
+def get_product_detail(product_id: int):
     """
     Obtiene los detalles completos de un producto específico por su ID.
     Úsalo si necesitas confirmar precio o stock exacto de un ítem antes de agregarlo.
@@ -35,7 +35,7 @@ def tool_get_product_detail(product_id: int):
     except Exception as e:
         return f"Error consultando detalle: {str(e)}"
 
-def tool_search_products(query: str = None, talle: str = None, color: str = None, categoria: str = None):
+def search_products(query: str = None, talle: str = None, color: str = None, categoria: str = None):
     """
     Busca productos en el catálogo basándose en palabras clave o características.
     Si el usuario pregunta algo similar a "¿qué tienes?", "¿Tienes el producto X?", usa esta función sin parámetros.
@@ -71,7 +71,7 @@ def tool_search_products(query: str = None, talle: str = None, color: str = None
     except Exception as e:
         return f"Error HTTP al consultar API de productos: {str(e)}"
 
-def tool_create_cart(phone : str):
+def create_cart(phone : str):
     """
     Crea un nuevo carrito de compras vacío para el usuario.
     Úsalo cuando el usuario exprese intención explícita de comenzar una compra
@@ -96,7 +96,7 @@ def tool_create_cart(phone : str):
     except Exception as e:
         return f"Error creando carrito vía API: {str(e)}"
 
-def tool_add_to_cart(cart_id: int ,phone: str, product_id: int, qty: int):
+def add_to_cart(cart_id: int ,phone: str, product_id: int, qty: int):
     """
     Agrega un producto a un carrito existente o aumenta las unidades compradas.
     IMPORTANTE: Las cantidades SOLO pueden ser 50, 100 o 200.
@@ -133,7 +133,7 @@ def tool_add_to_cart(cart_id: int ,phone: str, product_id: int, qty: int):
     except Exception as e:
         return f"Error agregando producto: {str(e)}"
     
-def tool_dismiss_to_cart(cart_id: int, phone: str, product_id: int, qty: int):
+def dismiss_to_cart(cart_id: int, phone: str, product_id: int, qty: int):
     """
     Disminuye la cantidad de unidades de un producto a un carrito existente.
     IMPORTANTE: Las cantidades SOLO pueden ser 50, 100 o 200.
@@ -167,13 +167,12 @@ def tool_dismiss_to_cart(cart_id: int, phone: str, product_id: int, qty: int):
     except Exception as e:
         return f"Error agregando producto: {str(e)}"
 
-def tool_get_cart_details(phone: int):
+def get_cart_details(phone: int):
     """
-    Consulta el contenido actual de un carrito (productos, precios y subtotal).
-    Úsalo cuando el usuario pregunte cosas similares a "¿qué tengo en el carrito?" o "ver carrito" o "¿cuanto va a costarme la compra?".
+    Consulta el ID de un carrito en base al número de teléfono del cliente.
     
     Args:
-        cart_id: El ID del carrito a consultar.
+        phone: numero de telefono del cliente
     """
     try:
         with httpx.Client() as client:
@@ -192,7 +191,7 @@ def tool_get_cart_details(phone: int):
     except Exception as e:
         return f"Error consultando carrito: {str(e)}"
 
-def tool_get_cart_items(cart_id:int):
+def get_cart_items(cart_id:int):
     """
     Consulta solo los ítems de un carrito específico.
     
@@ -211,7 +210,7 @@ def tool_get_cart_items(cart_id:int):
     except Exception as e:
         return f"Error consultando ítems del carrito: {str(e)}"
 
-def tool_remove_item(cart_id: int,phone:str, product_id: int):
+def remove_item(cart_id: int,phone:str, product_id: int):
     """
     Elimina un producto específico del carrito.
     
@@ -240,13 +239,26 @@ def tool_remove_item(cart_id: int,phone:str, product_id: int):
 
 # Esta lista se la pasaremos al modelo.
 my_tools_list = [
-    tool_get_product_detail,
-    tool_search_products,
-    tool_create_cart,
-    tool_add_to_cart,
-    tool_get_cart_details,
-    tool_remove_item
+    get_product_detail,
+    search_products,
+    create_cart,
+    add_to_cart,
+    dismiss_to_cart,
+    get_cart_details,
+    get_cart_items,
+    remove_item
 ]
+
+tools_map = {
+    'search_products': search_products,
+    'create_cart': create_cart,
+    'add_to_cart': add_to_cart,
+    'dismiss_to_cart': dismiss_to_cart,
+    'get_cart_details': get_cart_details,
+    'get_cart_items': get_cart_items,
+    'remove_item': remove_item,
+    'get_product_detail': get_product_detail
+}
 
 # ---------------------------------------------------------
 # PROMPT DEL SISTEMA (PERSONALIDAD)
@@ -279,9 +291,13 @@ REGLAS DE NEGOCIO CRÍTICAS:
    - Siempre consulta precios con las herramientas, nunca los inventes
    
 6. GESTIÓN DE CARRITO:
-   - Si no existe carrito: créalo automáticamente con tool_create_cart
+   - Primero verifica si el cliente tiene un carrito activo, usa la tool get_cart_details
+   - Si no conoces el cart_id de un cliente, usa usa la tool  get_cart_details para obtenerlo
+   - Si no existe carrito: créalo automáticamente sin preguntarle al cliente con la tool create_cart
    - Guarda el cart_id en contexto para operaciones futuras
+   - Si un cliente pide ver el carrito, usa get_cart_details
    - Para agregar productos SIEMPRE necesitas: product_id y cart_id
+   - Los clientes no conocen los IDs, así que si quieres eliminar o modificar la cantidad de unidades de un producto dentro de un carrito busca primero el product_id con get_cart_items y luego preguntale al cliente si ese es realmente el producto que quiere modificar. 
 
 7. CONSIDERACIONES:
    - Formato del nombre de un producto en la base de datos: "camiseta_m_rojo"
@@ -292,9 +308,9 @@ REGLAS DE NEGOCIO CRÍTICAS:
 
 FLUJO DE TRABAJO:
 1. Pregunta del usuario -> Identifica intención (consulta/compra/modificación)
-2. Si menciona un producto sin ID -> Usa tool_search_products primero
-3. Para agregar al carrito -> Verifica cart_id -> Si no existe, créalo -> Luego agrega con tool_add_to_cart
-4. Para modificar cantidades → Usa tool_update_cart_item o tool_remove_from_cart
+2. Si menciona un producto sin ID -> Usa search_products primero
+3. Para agregar al carrito -> Verifica cart_id -> Si no existe, créalo -> Luego agrega con add_to_cart
+4. Para modificar cantidades → Usa update_cart_item o remove_from_cart
 
 TONO Y ESTILO:
 - Conciso y directo (ideal para WhatsApp)
@@ -345,26 +361,105 @@ class AIService:
                 # history=[] inicia el chat vacío. 
                 # enable_automatic_function_calling=True permite que el SDK maneje el bucle de herramientas
                 self.chat_sessions[phone_number] = self.model.start_chat(
-                    enable_automatic_function_calling=True
+                    #enable_automatic_function_calling=True
                 )
                 logger.info(f"Nueva sesión iniciada para {phone_number}")
 
-            chat_session = self.chat_sessions[phone_number]
-
-            user_message= user_message + "... El número de teléfono del cliente es: " + phone_number
-            response = chat_session.send_message(user_message)
             
-            return response.text
-
+            chat = self.chat_sessions[phone_number]
+            
+            # Agregar contexto del teléfono
+            full_message = f"{user_message}\n\nNúmero de teléfono del cliente: {phone_number}"
+            
+            # 1. Enviar mensaje inicial
+            response = chat.send_message(full_message)
+            
+            # 2. BUCLE DE RESOLUCIÓN DE HERRAMIENTAS (con límite de iteraciones)
+            max_iterations = 20
+            iteration = 0
+            
+            while iteration < max_iterations:
+                iteration += 1
+                
+                if not response.candidates:
+                    logger.warning("No hay candidatos en la respuesta")
+                    break
+                
+                candidate = response.candidates[0]
+                
+                if not candidate.content or not candidate.content.parts:
+                    logger.info("No hay más partes de contenido")
+                    break
+                
+                # Extraer function calls
+                function_calls = [
+                    part.function_call 
+                    for part in candidate.content.parts 
+                    if hasattr(part, 'function_call') and part.function_call
+                ]
+                
+                if not function_calls:
+                    logger.info("No hay más function calls pendientes")
+                    break
+                
+                # Ejecutar todas las function calls
+                function_responses = []
+                
+                for fc in function_calls:
+                    func_name = fc.name
+                    func_args = dict(fc.args)
+                    
+                    logger.info(f"[{iteration}] Ejecutando: {func_name} con {func_args}")
+                    
+                    if func_name in tools_map:
+                        try:
+                            tool_result = tools_map[func_name](**func_args)
+                            logger.info(f"Resultado de {func_name}: {str(tool_result)[:100]}...")
+                        except Exception as tool_error:
+                            tool_result = f"Error ejecutando {func_name}: {str(tool_error)}"
+                            logger.error(f"{tool_result}")
+                    else:
+                        tool_result = f"Error: Herramienta '{func_name}' no encontrada."
+                        logger.error(tool_result)
+                    
+                    # Crear la respuesta para Gemini
+                    function_responses.append(
+                        genai.protos.Part(
+                            function_response=genai.protos.FunctionResponse(
+                                name=func_name,
+                                response={'result': tool_result}
+                            )
+                        )
+                    )
+                
+                # Enviar todos los resultados de vuelta a Gemini
+                if function_responses:
+                    response = chat.send_message(function_responses)
+                else:
+                    break
+            
+            if iteration >= max_iterations:
+                logger.warning(f"⚠️ Límite de iteraciones alcanzado ({max_iterations})")
+                return "He procesado tu solicitud, pero tomó más tiempo del esperado. ¿Puedo ayudarte con algo más?"
+            
+            # 3. Retornar respuesta final
+            if response.text:
+                return response.text
+            else:
+                logger.warning("Respuesta sin texto después del ciclo")
+                return "Operación completada. ¿Necesitas algo más?"
+                
         except Exception as e:
-            logger.error(f"Error en AI Service: {e}")
-            return "Lo siento, tuve un problema procesando tu solicitud. Por favor intenta de nuevo."
-
+            logger.error(f"Error CRÍTICO en AI Service: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return "Lo siento, hubo un error interno procesando tu solicitud. Por favor intenta de nuevo."
 
 if __name__ == "__main__":
     #print(tool_search_products(query="camiseta"))
     #print(tool_get_product_detail(140))
     #print(tool_get_cart_details("2284540126"))
     #print(tool_get_cart_items(5))
-    print(tool_add_to_cart(5,"2284540126",72,50))
-    
+    #print(tool_add_to_cart("5","2284540126","82","50"))
+    print(get_cart_details("2284540126"))
+    pass
