@@ -70,7 +70,7 @@ async def get_products(
 
     except Exception as e:
         print(f"Error buscando productos: {e}")
-        raise HTTPException(status_code=500, detail="Error interno buscando productos")
+        raise HTTPException(status_code=500, detail=f"Error buscando productos: {e}")
 
 @router.get("/carts/{cart_phone}/id")
 async def get_cart(cart_phone: int):
@@ -149,7 +149,7 @@ async def update_cart(cart_id:int,cart_update: CartUpdate):
         raise he
     except Exception as e:
         print(f"Error actualizando carrito: {e}")
-        raise HTTPException(status_code=500, detail="Error actualizando el carrito")
+        raise HTTPException(status_code=500, detail=f"Error actualizando el carrito: {e}")
     
 @router.post("/carts", status_code=status.HTTP_201_CREATED)
 async def create_cart(cart_data: CartUpdate):
@@ -179,7 +179,7 @@ async def create_cart(cart_data: CartUpdate):
 
     except Exception as e:
         print(f"Error creando carrito: {e}")
-        raise HTTPException(status_code=500, detail="Error interno al crear carrito")
+        raise HTTPException(status_code=500, detail=f"Error creando carrito: {e}")
     
 
 # ---------------------------------------------------------
