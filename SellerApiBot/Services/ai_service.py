@@ -351,6 +351,7 @@ class AIService:
 
             chat_session = self.chat_sessions[phone_number]
 
+            user_message= user_message + "... El número de teléfono del cliente es: " + phone_number
             response = chat_session.send_message(user_message)
             
             return response.text
@@ -360,9 +361,10 @@ class AIService:
             return "Lo siento, tuve un problema procesando tu solicitud. Por favor intenta de nuevo."
 
 
-#if __name__ == "__main__":
+if __name__ == "__main__":
     #print(tool_search_products(query="camiseta"))
     #print(tool_get_product_detail(140))
     #print(tool_get_cart_details("2284540126"))
     #print(tool_get_cart_items(5))
+    print(tool_add_to_cart(5,"2284540126",72,50))
     
