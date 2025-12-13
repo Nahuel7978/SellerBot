@@ -10,20 +10,30 @@ import json
 
 logger = logging.getLogger("scapi")
 
-
-# Función para convertir el tipo DECIMAL a float de Python
 def decimal_to_float(value, curs):
+    """
+    Convierte DECIMAL de PostgreSQL a float en Python.
+    
+    Args:
+        - value: Valor DECIMAL recibido de la BD.
+        - curs: Cursor (no usado aquí).
+    Returns:
+        - float o None si el valor es None.    
+    """
     if value is None:
         return None
     return float(value)
 
 class SellerDao:
+    """
+    Data Access Object (DAO) para operaciones relacionadas con productos y carritos.
+    """
+
     _db_pool = None
 
     def __init__(self):
-        """
-        Singleton pattern: Inicializa el Pool de conexiones la primera vez que se instancia la clase.
-        """
+        #Singleton pattern: Inicializa el Pool de conexiones la primera vez que se instancia la clase.
+        
         if not SellerDao._db_pool:
             try:
                 # Obtenemos la URL directamente de las variables de entorno
@@ -80,6 +90,13 @@ class SellerDao:
         Busca productos construyendo un patrón de coincidencia
         dentro del campo 'name' basado en q, talle y color.
         Filtra por categoría si se proporciona.
+
+        Args:
+            - filters: Diccionario con posibles claves:
+                - 'name': Búsqueda general (string)
+                - 'talle': Filtro por talle (string)
+                - 'color': Filtro por color (string)
+                - 'category': Filtro por categoría (string)
         """
         # SQL base
         sql = """
@@ -122,6 +139,9 @@ class SellerDao:
         """
         Busca un producto por ID y devuelve sus detalles, incluyendo los precios por volumen.
         Devuelve un diccionario con los detalles del producto o None si no existe.
+
+        Args:
+            - product_id: ID del producto a buscar.
         """
         sql = """
             SELECT 
@@ -153,7 +173,12 @@ class SellerDao:
     # ---------------------------------------------------------
     
     def create_empty_cart(self,phone) -> int:
-        """Crea un carrito vacío y devuelve su ID"""
+        """
+        Crea un carrito vacío y devuelve su ID
+        
+        Args:
+            - phone: Teléfono asociado al carrito.
+        """
         sql = "INSERT INTO carts (created_at, updated_at, phone_number) VALUES (NOW(), NOW(),%s) RETURNING id"
         with self.get_cursor() as cur:
             cur.execute(sql,(phone,))
@@ -161,7 +186,12 @@ class SellerDao:
             return cart_id
 
     def get_cart_header(self, cart_id: int) -> Optional[Dict]:
-        """Obtiene los datos generales del carrito"""
+        """
+        Obtiene los datos generales del carrito
+        
+        Args:
+            - cart_id: ID del carrito a buscar.
+        """
         sql = "SELECT id, created_at, updated_at FROM carts WHERE phone_number = %s"
         with self.get_cursor() as cur:
             cur.execute(sql, (cart_id,))
@@ -174,6 +204,9 @@ class SellerDao:
     def get_cart_items(self, cart_id: int) -> List[Dict]:
         """
         Obtiene los ítems aplicando la lógica de precios por volumen (50, 100, 200 unidades).
+
+        Args:
+            - cart_id: ID del carrito a buscar.
         """
         sql = """
             SELECT 
@@ -210,6 +243,10 @@ class SellerDao:
     def get_cart_one_item(self, cart_id:int, product_id: int):
         """
         Obtiene un ítem específico del carrito.
+
+        Args:
+            - cart_id: ID del carrito.
+            - product_id: ID del producto a buscar.
         """
         sql = """
             SELECT 
@@ -228,11 +265,15 @@ class SellerDao:
                 return dict(zip(columns, row))
             return None
 
-
     def add_item(self, cart_id: int, product_id: int, qty: int):
         """
         Agrega un ítem o actualiza la cantidad si ya existe.
         Usa lógica 'Upsert' manual para compatibilidad máxima.
+
+        Args:
+            - cart_id: ID del carrito.
+            - product_id: ID del producto a agregar.
+            - qty: Cantidad a agregar.
         """
         update_sql = """
             UPDATE cart_items 
@@ -269,6 +310,11 @@ class SellerDao:
     def dismiss_item(self, cart_id: int, product_id: int, qty: int):
         """
         Disminuye la cantidad de un item.
+
+        Args:
+            - cart_id: ID del carrito.
+            - product_id: ID del producto a disminuir.
+            - qty: Cantidad a disminuir.
         """
         update_sql = """
             UPDATE cart_items 
@@ -294,7 +340,13 @@ class SellerDao:
             return {"product_id": product_id, "added_qty": qty}
 
     def remove_item(self, cart_id: int, product_id: int):
-        """Elimina un ítem del carrito"""
+        """
+        Elimina un ítem del carrito
+        
+        Args:
+            - cart_id: ID del carrito.
+            - product_id: ID del producto a eliminar.
+        """
         sql = "DELETE FROM cart_items WHERE cart_id = %s AND product_id = %s"
         with self.get_cursor() as cur:
             cur.execute(sql, (cart_id, product_id))

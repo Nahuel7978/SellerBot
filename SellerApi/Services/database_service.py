@@ -8,6 +8,9 @@ logger = logging.getLogger("scapi")
 ALLOWED_QUANTITIES = {50, 100, 200}
 
 class DatabaseService:
+    """
+    Clase de Servicio que contiene la Lógica de Negocio para el acceso a los datos.
+    """
     def __init__(self):
         self.dao = SellerDao()
 
@@ -15,6 +18,9 @@ class DatabaseService:
     def _validate_quantity(self, qty: int):
         """
         Método de validación de negocio para la cantidad mínima.
+
+        args:
+            - qty: Cantidad a validar.
         """
         if qty not in ALLOWED_QUANTITIES:
             raise ValueError(
@@ -24,6 +30,9 @@ class DatabaseService:
     def get_product(self, id:int):
         """
         Llama al DAO para obtener un producto por ID.
+
+        args:
+            - id: ID del producto a buscar.
         """
         logger.info(f"Servicio: Obteniendo producto con ID: {id}")
         return self.dao.get_product_by_id(id)
@@ -32,6 +41,9 @@ class DatabaseService:
         """
         Recibe un diccionario de filtros (ej: {'color': 'rojo'})
         y llama al DAO para obtener la lista.
+
+        args:
+            - filters: Diccionario con filtros de búsqueda.
         """
         logger.info(f"Servicio: Buscando productos con filtros: {filters}")
         return self.dao.get_products(filters)
@@ -39,6 +51,10 @@ class DatabaseService:
     def create_cart(self, phone: int, initial_items: list):
         """
         Crea un carrito. Si vienen ítems iniciales, los inserta también.
+
+        args:
+            - phone: Teléfono asociado al carrito.
+            - initial_items: Lista de ítems iniciales (puede estar vacía).
         """
         try:
             # 1. Validar todos los ítems antes de la creación
@@ -66,6 +82,9 @@ class DatabaseService:
         """
         Lógica de Negocio: Un carrito "útil" para el frontend/agente 
         no es solo la tabla 'carts', es la combinación del carrito + sus ítems.
+
+        args:
+            - cart_phone: Número de teléfono asociado al carrito.
         """
         cart_header = self.dao.get_cart_header(cart_phone)
         
@@ -77,6 +96,9 @@ class DatabaseService:
     def get_cart_items(self, cart_id: int):
         """
         Devuelve solo los ítems (validaciones rápidas).
+
+        args:
+            - cart_id: ID del carrito.
         """
         
         return self.dao.get_cart_items(cart_id)
@@ -84,6 +106,11 @@ class DatabaseService:
     def add_to_cart(self, cart_id: int, product_id: int, qty: int):
         """
         Agrega o actualiza un ítem.
+
+        args:
+            - cart_id: ID del carrito.
+            - product_id: ID del producto a agregar.
+            - qty: Cantidad a agregar.
         """
         self._validate_quantity(abs(qty))
 
@@ -96,6 +123,11 @@ class DatabaseService:
     def dismiss_to_cart(self, cart_id: int, product_id: int, qty: int):
         """
         Disminuye la cantidad de un ítem en el carrito.
+
+        args:
+            - cart_id: ID del carrito.
+            - product_id: ID del producto a disminuir.
+            - qty: Cantidad a disminuir.
         """
         self._validate_quantity(qty)
         item = self.dao.get_cart_one_item(cart_id, product_id)
@@ -111,5 +143,9 @@ class DatabaseService:
     def remove_item_from_cart(self, cart_id: int, product_id: int):
         """
         Elimina un ítem del carrito.
+
+        args:
+            - cart_id: ID del carrito.
+            - product_id: ID del producto a eliminar.
         """
         return self.dao.remove_item(cart_id, product_id)
