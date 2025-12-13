@@ -1,68 +1,28 @@
 import os
-from fastapi import APIRouter, HTTPException , Query, status, Form
-from fastapi.responses import JSONResponse, Response
+from fastapi import APIRouter, HTTPException , Query, status
+from fastapi.responses import JSONResponse
 import json
 from datetime import datetime, date
 from decimal import Decimal
 from typing import Optional, Any
 from dotenv import load_dotenv
 from Services.database_service import DatabaseService
-from Services.ai_service import AIService
 from Model.schemas import  CartUpdate
 
 # Carga variables de entorno (para desarrollo local)
 load_dotenv()
 
-# Define el token de verificación desde las variables de entorno
-VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
-
 router = APIRouter()
 
 db_service = DatabaseService()
-ai_service = AIService()
-
-# -----------------------------------------------------------
-# 1. ENDPOINT DE VERIFICACIÓN (GET)
-# Meta lo usa solo una vez para validar que el webhook es tuyo.
-# -----------------------------------------------------------
-@router.post("/webhook", status_code=status.HTTP_200_OK)
-async def whatsapp_webhook(
-    # Twilio envía el número del remitente en el campo 'From'
-    From: str = Form(..., alias="From"), 
-    # Twilio envía el contenido del mensaje en el campo 'Body'
-    Body: str = Form(..., alias="Body") 
-):
-    # 1. Limpieza del número: Twilio incluye "whatsapp:" (ej: "whatsapp:+549...")
-    phone_number = From.replace("whatsapp:", "")
-    user_message = Body
-
-    # 2. Procesar el mensaje con tu AI Service
-    ai_response_text = ai_service.get_response(phone_number, user_message)
-
-    # 3. Twilio espera una respuesta en formato TwiML (XML)
-    twiml_response = f"""
-    <Response>
-        <Message>{ai_response_text}</Message>
-    </Response>
-    """
-    return Response(content=twiml_response, media_type="application/xml")
-
-# -----------------------------------------------------------
-
-@router.post("/test-message")
-async def test_message(message: str, phone_number: int):
-    try:
-        response = ai_service.get_response(str(phone_number), message)        
-        return JSONResponse(content={"response": response}, status_code=200)
-    except Exception as e:
-        print(f"Error respondiendo la consulta: {e}")
-        raise HTTPException(status_code=500, detail="Error interno respondiendo la consulta")
 
 
 @router.get("/products/{product_id}")
 async def get_product_detail(product_id: int):
     """
-    Endpoint requerido: Detalle de un producto específico.
+    Detalle de un producto específico.
+    args:
+    - product_id: ID del producto a buscar.
     """
     product = db_service.get_product(product_id)
     if not product:
@@ -79,6 +39,12 @@ async def get_products(
     """
     Busca productos. Si no se pasan parámetros, devuelve todos.
     Si se pasan parámetros (q, talle, color, categoria), filtra los resultados.
+
+    args:
+    - q: Búsqueda general (nombre o descripción).
+    - size: Filtro por talle.
+    - color: Filtro por color.
+    - category: Filtro por categoría.
     """
     try:
         # Empaquetamos los filtros en un diccionario limpio
@@ -110,6 +76,9 @@ async def get_products(
 async def get_cart(cart_phone: int):
     """
     Busca un carrito por su ID.
+    
+    args:
+    - cart_phone: Número de teléfono asociado al carrito.
     """
     try:
         cart = db_service.get_cart(cart_phone)
@@ -125,6 +94,9 @@ async def get_cart(cart_phone: int):
 async def get_cart_items(cart_id: int):
     """
     Busca solo los ítems de un carrito específico.
+
+    args:
+     - cart_id: ID del carrito.
     """
     try:
         items = db_service.get_cart_items(cart_id)
@@ -142,6 +114,10 @@ async def update_cart(cart_id:int,cart_update: CartUpdate):
     - Si qty > 0: Agrega o actualiza cantidad.
     - Si qty == 0: Elimina el producto del carrito (Lógica de 'Discard').
     - Si qty < 0: Disminuye la cantidad (si queda 0 o menos, elimina el ítem).
+
+    args:
+    - cart_id: ID del carrito a modificar.
+    - cart_update: Objeto con número de teléfono y lista de ítems a modificar.
     """
     try:
         # Verificamos primero si el carrito existe
@@ -176,6 +152,9 @@ async def create_cart(cart_data: CartUpdate):
     Crea un nuevo carrito de compras.
     Opcionalmente puede recibir ítems iniciales.
     Body: { "items": [{ "product_id": 1, "qty": 1 }] }
+
+    args:
+        - cart_data: Objeto con número de teléfono y lista de ítems iniciales.
     """
     try:
         # Llamamos al servicio para crear el carrito en la BD
