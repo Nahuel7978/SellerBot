@@ -277,6 +277,7 @@ REGLAS DE NEGOCIO CRÍTICAS:
     - Intenta siempre clasificar los productos con estos tipos.
     - Para cada categoría deber respetar las tildes.
     - Estos tipos están incluidos en el nombre del producto (formato: tipo_talle_color)
+    - Si el usuario pide una prenda que no pertenece a los tipos listados, dile que no la tenemos ese tipo de prenda e indícale los tipos de prendas que sí tenemos(camiseta, falda, pantalón, chaqueta y camisa.).
 
 2. TALLAS DISPONIBLES: s, m, l, xl, xxl.
 
@@ -451,9 +452,11 @@ class AIService:
                 
         except Exception as e:
             logger.error(f"Error CRÍTICO en AI Service: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-            return "Lo siento, hubo un error interno procesando tu solicitud. Por favor intenta de nuevo."
+            status_code = getattr(e, 'status_code', None) or getattr(e, 'code', None)
+            if(status_code==429):
+                return "Lo siento, se alcanzo el límite de consultas en el día. Por favor intenta de nuevo mañana."
+            else:
+                return "Lo siento, hubo un error interno procesando tu solicitud. Por favor intenta de nuevo."
 
 if __name__ == "__main__":
     #print(tool_search_products(query="camiseta"))
