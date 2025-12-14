@@ -72,7 +72,7 @@ async def get_products(
         print(f"Error buscando productos: {e}")
         raise HTTPException(status_code=500, detail="Error interno buscando productos")
 
-@router.get("/carts/{cart_phone}")
+@router.get("/carts/{cart_phone}/id")
 async def get_cart(cart_phone: int):
     """
     Busca un carrito por su ID.
