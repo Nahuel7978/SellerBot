@@ -1,7 +1,7 @@
 import httpx
 import os
 import google.generativeai as genai
-from google.generativeai.types import content_types
+from google.generativeai.types import content_types, HarmCategory, HarmBlockThreshold
 from collections import defaultdict
 import logging
 from dotenv import load_dotenv
@@ -335,12 +335,14 @@ class AIService:
 
         genai.configure(api_key=api_key)
         
+
         self.model = genai.GenerativeModel(
-            model_name='gemini-2.5-flash-lite',
+            model_name='gemini-2.5-flash',
             tools=my_tools_list,
-            system_instruction=SYSTEM_INSTRUCTION
+            system_instruction=SYSTEM_INSTRUCTION,
+            #safety_settings=safety_settings
         )
-        
+
         # Memoria de sesiones: { 'phone_number': ChatSession }
         self.chat_sessions = {}
 
@@ -372,7 +374,7 @@ class AIService:
             response = chat.send_message(full_message)
             
             # 2. BUCLE DE RESOLUCIÓN DE HERRAMIENTAS (con límite de iteraciones)
-            max_iterations = 50
+            max_iterations = 100
             iteration = 0
             
             while iteration < max_iterations:
@@ -384,6 +386,11 @@ class AIService:
                 
                 candidate = response.candidates[0]
                 
+                if candidate.finish_reason == 3:
+                    logger.error("🚨 BLOQUEADO POR SAFETY FILTER")
+                    if hasattr(candidate, 'safety_ratings'):
+                        logger.error(f"Safety ratings: {candidate.safety_ratings}")
+
                 if not candidate.content or not candidate.content.parts:
                     logger.info("No hay más partes de contenido")
                     break
