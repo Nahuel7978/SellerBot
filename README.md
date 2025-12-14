@@ -28,16 +28,22 @@ El código está estructurado en capas separadas (Controller, Service, DAO) para
 
     └── SellerApi/
         ├── Controllers/   
-        │   └── controller_api.py (Controladores HTTP, Webhook)
+        │   └── controller_api.py (Controladores HTTP)
         ├── Services/
-        │   ├── ai_service.py     (Cerebro LLM, Tools HTTP y Memoria)
         │   └──  database_service.py (Orquestación de la lógica de negocio)
         ├── Models/
         │   └──  schemas.py
         ├── Dao/
         │   └── seller_dao.py     (SQL puro y Connection Pooling con psycopg2)
         └── main.py             (Punto de entrada de FastAPI)
-
+    
+    .└── SellerApiBot/
+        ├── Controllers/
+        │   └── controller.py (Webhook)
+        ├── Services/
+        |   └── ai_service.py(Cerebro LLM, Tools HTTP y Memoria)
+        └── main.py (Punto de entrada de FastAPI)
+        
 ## 3 Pruebas y Funcionalidad del Agente
 
 El Agente implementa un ciclo de vida de Agente/Tool Use utilizando el Function Calling de Gemini.
@@ -71,20 +77,22 @@ El Agente es capaz de gestionar los siguientes flujos:
 
   -  _Precios por Volumen_: El cálculo del subtotal en el carrito utiliza el precio correcto (price_fivety_units, price_one_hundred_units, etc.) según la cantidad ingresada, garantizando la precisión transaccional.
 
-### 3.3 Diagrama de flujo.
-<img width="1253" height="631" alt="Design diagram-C C- General" src="https://github.com/user-attachments/assets/85e8b552-3100-4b53-a2b4-94eddb98f011" />
+### 3.3 Diagrama de Secuencia (Busqueda de productos) .
+<img width="2200" height="1320" alt="Diagrama de secuencia - busqueda de productos(1)" src="https://github.com/user-attachments/assets/114ded4b-069d-4d6f-94bc-e781a9ea8535" />
 
-### 3.4 Vista de modulos (estática)
-<img width="522" height="562" alt="Design diagram-Static - Seller API" src="https://github.com/user-attachments/assets/0804e816-0614-451c-9513-4e77f9f30b3b" />
 
-### 3.4 Vista Componentes y Conectores (C&C)
-<img width="691" height="991" alt="Design diagram-C C - Seller API" src="https://github.com/user-attachments/assets/2b78c088-a042-41b7-baeb-7a280d03e402" />
+### 3.4 Diagrama de Secuencia (Crear y agregar producto al carrito)
+<img width="2276" height="1807" alt="Diagrama de secuencia - Crear y agregar un producto" src="https://github.com/user-attachments/assets/80c5b7f7-1707-4daa-aebe-b71e67bab848" />
 
-### 3.5 Esqueda de la Base de Datos.
+### 3.5 Vista Componentes y Conectores (C&C)
+<img width="1381" height="1031" alt="Design diagram-C C - Seller API(1)" src="https://github.com/user-attachments/assets/99988765-9e3a-44ed-9ce1-db6d612151e8" />
+
+### 3.6 Esquema de la Base de Datos.
 <img width="741" height="151" alt="Design diagram-DB" src="https://github.com/user-attachments/assets/6abd1c3d-9ecc-4a27-8be8-f10230b407ed" />
 
 ## 4. Mejoras futuras.
 En base al avance logrado en el proyecto las futuras implementaciones vendrían de la mano de:
 - Manejo de multiples usuarios
 - La ampliación de la base de datos para almacenar el perfil del cliente.
-- Pasar de una estructura de monolito a una estilo SOA donde se identifiquen dos servicios claves(consumo de datos y ai) y pudiendo hacer deploy de ambos servicios de forma separada.
+- Multiples carritos por usuario.
+- Separación de repositorios(repositorio para LLM y otro para API_database).
