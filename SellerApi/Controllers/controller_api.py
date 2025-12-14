@@ -121,10 +121,15 @@ async def update_cart(cart_id:int,cart_update: CartUpdate):
     """
     try:
         # Verificamos primero si el carrito existe
-        id = db_service.get_cart(cart_update.phone_number)
-        if id == None:
-             # Si no existe, opcionalmente podríamos crearlo aquí o dar 404
-             raise HTTPException(status_code=404, detail="Carrito no encontrado")
+        found_cart_id = db_service.get_cart(cart_update.phone_number)
+        if found_cart_id is None:
+            raise HTTPException(status_code=404, detail="Carrito no encontrado")
+        
+        if found_cart_id != cart_id:
+            raise HTTPException(
+                status_code=400, 
+                detail="El cart_id no corresponde al teléfono proporcionado"
+            )
 
         results = []
         for item in cart_update.items:
