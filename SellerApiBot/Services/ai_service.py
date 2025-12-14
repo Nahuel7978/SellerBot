@@ -136,7 +136,7 @@ def add_to_cart(cart_id: int ,phone: str, product_id: int, qty: int):
 def dismiss_to_cart(cart_id: int, phone: str, product_id: int, qty: int):
     """
     Disminuye la cantidad de unidades de un producto a un carrito existente.
-    IMPORTANTE: Las cantidades SOLO pueden ser 50, 100 o 200.
+    IMPORTANTE: Las cantidades a disminuir SOLO pueden ser 50, 100 o 200.
     
     Args:
         cart_id: El número ID del carrito activo (debes haberlo creado o preguntado antes).
@@ -193,7 +193,7 @@ def get_cart_details(phone: int):
 
 def get_cart_items(cart_id:int):
     """
-    Consulta solo los ítems de un carrito específico.
+    Busca los productos que tiene un carrito específico.
     
     Args:
         cart_id: El ID del carrito a consultar.
@@ -375,7 +375,7 @@ class AIService:
             response = chat.send_message(full_message)
             
             # 2. BUCLE DE RESOLUCIÓN DE HERRAMIENTAS (con límite de iteraciones)
-            max_iterations = 20
+            max_iterations = 50
             iteration = 0
             
             while iteration < max_iterations:
@@ -427,7 +427,7 @@ class AIService:
                         genai.protos.Part(
                             function_response=genai.protos.FunctionResponse(
                                 name=func_name,
-                                response={'result': tool_result}
+                                response={'result': str(tool_result)}
                             )
                         )
                     )
@@ -461,5 +461,5 @@ if __name__ == "__main__":
     #print(tool_get_cart_details("2284540126"))
     #print(tool_get_cart_items(5))
     #print(tool_add_to_cart("5","2284540126","82","50"))
-    print(get_cart_details("2284540126"))
+    #print(get_cart_details("2284540126.0"))
     pass
