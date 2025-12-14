@@ -176,11 +176,7 @@ def get_cart_details(phone: int):
     """
     try:
         with httpx.Client() as client:
-            # Consume GET /carts/:id
-            # Nota: Tu controller tiene endpoints separados para header e items,
-            # pero asumimos que el endpoint /carts/{id} devuelve el JSON completo 
-            # (header + items) tal como lo programamos en el Service.
-            response = client.get(f"{BASE_URL}/carts/{phone}", timeout=10)
+            response = client.get(f"{BASE_URL}/carts/{phone}/id", timeout=10)
             
             if response.status_code == 404:
                 return "El carrito no existe."
